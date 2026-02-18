@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
@@ -12,6 +13,7 @@ const menus = [
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -21,34 +23,55 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
   return (
     <div className="min-h-screen bg-gray-950 flex">
       {/* 사이드바 */}
-      <aside className="w-60 bg-gray-900 border-r border-gray-800 flex flex-col">
-        <div className="p-6 border-b border-gray-800">
-          <h1 className="text-white font-bold text-lg">🤖 관리자</h1>
-          <p className="text-gray-500 text-xs mt-1">나도 주식전문가</p>
+      <aside
+        className={`${
+          collapsed ? 'w-16' : 'w-60'
+        } bg-gray-900 border-r border-gray-800 flex flex-col transition-all duration-300`}
+      >
+        {/* 헤더 */}
+        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+          {!collapsed && (
+            <div>
+              <h1 className="text-white font-bold text-lg">🤖 관리자</h1>
+              <p className="text-gray-500 text-xs mt-1">나도 주식전문가</p>
+            </div>
+          )}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="text-gray-400 hover:text-white transition-colors p-1 rounded-lg hover:bg-gray-800 ml-auto"
+          >
+            {collapsed ? '▶' : '◀'}
+          </button>
         </div>
 
-        <nav className="flex-1 p-4 space-y-1">
+        {/* 메뉴 */}
+        <nav className="flex-1 p-2 space-y-1">
           {menus.map((menu) => (
             <button
               key={menu.href}
               onClick={() => router.push(menu.href)}
-              className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+              className={`w-full text-left px-3 py-3 rounded-lg text-sm font-medium transition-colors flex items-center gap-3 ${
                 pathname === menu.href
                   ? 'bg-emerald-500/20 text-emerald-400'
                   : 'text-gray-400 hover:bg-gray-800 hover:text-white'
               }`}
+              title={collapsed ? menu.label : ''}
             >
-              {menu.icon} {menu.label}
+              <span className="text-lg">{menu.icon}</span>
+              {!collapsed && <span>{menu.label}</span>}
             </button>
           ))}
         </nav>
 
-        <div className="p-4 border-t border-gray-800">
+        {/* 로그아웃 */}
+        <div className="p-2 border-t border-gray-800">
           <button
             onClick={handleLogout}
-            className="w-full text-left px-4 py-3 rounded-lg text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-red-400 transition-colors"
+            className="w-full text-left px-3 py-3 rounded-lg text-sm font-medium text-gray-400 hover:bg-gray-800 hover:text-red-400 transition-colors flex items-center gap-3"
+            title={collapsed ? '로그아웃' : ''}
           >
-            🚪 로그아웃
+            <span className="text-lg">🚪</span>
+            {!collapsed && <span>로그아웃</span>}
           </button>
         </div>
       </aside>
