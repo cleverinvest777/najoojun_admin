@@ -156,54 +156,80 @@ export default function AiPickPage() {
         </div>
       ) : null}
 
+      {/* 픽 카드 3개 렌더링 부분 */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {PICK_KEYS.map((pickKey, index) => {
           const pickedName = todaySelection?.[`${pickKey}_stock_name`];
           const pickedId = todaySelection?.[`${pickKey}_stock_id`];
+          const isAnnounced = todaySelection?.is_announced;
 
           return (
             <div key={pickKey} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 relative">
-              <h3 className="text-white font-bold text-lg mb-4">Pick {index + 1}</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-bold text-lg">Pick {index + 1}</h3>
+                {pickedName && (
+                  <span className="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-1 rounded-full font-bold">SET</span>
+                )}
+              </div>
 
+              {/* 1. 종목이 선택된 경우: 미선택 자리에 종목명 표시 */}
               {pickedName ? (
-                <div className="bg-gray-800 rounded-xl p-4 flex justify-between items-center border border-emerald-500/30">
+                <div className="bg-gray-800 border border-emerald-500/30 rounded-xl p-4 flex justify-between items-center animate-in fade-in duration-300">
                   <div>
-                    <div className="text-white font-bold">{pickedName}</div>
+                    <div className="text-white font-bold text-lg">{pickedName}</div>
                     <div className="text-gray-500 text-xs">{pickedId}</div>
                   </div>
-                  {!todaySelection?.is_announced && (
-                    <button onClick={() => handleCancelPick(pickKey)} className="text-gray-500 hover:text-red-400 font-bold px-2">✕</button>
+                  {!isAnnounced && (
+                    <button 
+                      onClick={() => handleCancelPick(pickKey)} 
+                      className="text-gray-500 hover:text-red-400 transition-colors p-2"
+                      title="취소"
+                    >
+                      ✕
+                    </button>
                   )}
                 </div>
               ) : (
+                /* 2. 종목이 선택되지 않은 경우: 검색창 표시 */
                 <div className="relative">
                   <input
                     type="text"
                     value={searchInputs[pickKey]}
                     onChange={(e) => setSearchInputs(prev => ({ ...prev, [pickKey]: e.target.value }))}
                     placeholder="종목명 또는 코드 검색"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:border-emerald-500 outline-none text-sm"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-4 text-white focus:border-emerald-500 outline-none text-sm transition-all"
                   />
                   
-                  {/* 검색 결과 드롭다운 */}
-                  {searchResults[pickKey].length > 0 && (
-                    <div className="absolute z-10 w-full mt-2 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
+                  {/* 검색 결과 드롭다운 (검색어가 있을 때만) */}
+                  {searchInputs[pickKey].trim().length > 0 && searchResults[pickKey].length > 0 && (
+                    <div className="absolute z-20 w-full mt-2 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto">
                       {searchResults[pickKey].map((stock) => (
                         <button
                           key={stock.code}
                           onClick={() => handleSelectStock(pickKey, stock)}
-                          className="w-full text-left px-4 py-3 hover:bg-gray-700 flex justify-between items-center border-b border-gray-700/50 last:border-0"
+                          className="w-full text-left px-4 py-3 hover:bg-emerald-500/10 flex justify-between items-center border-b border-gray-700/50 last:border-0 group"
                         >
                           <div>
-                            <div className="text-white text-sm font-medium">{stock.name}</div>
+                            <div className="text-white text-sm font-bold group-hover:text-emerald-400">{stock.name}</div>
                             <div className="text-gray-500 text-xs">{stock.code}</div>
                           </div>
-                          <span className="text-gray-600 text-[10px] uppercase font-bold">{stock.market}</span>
+                          <span className="text-gray-600 text-[10px] font-mono">{stock.market}</span>
                         </button>
                       ))}
                     </div>
                   )}
-                  {isSearching[pickKey] && <div className="absolute right-3 top-3.5"><div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div></div>}
+                  
+                  {/* 검색 중일 때 로딩 표시 */}
+                  {isSearching[pickKey] && (
+                    <div className="absolute right-4 top-4">
+                      <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full"></div>
+                    </div>
+                  )}
+                  
+                  {/* 검색어가 없을 때 보여줄 안내 문구 */}
+                  {searchInputs[pickKey].length === 0 && (
+                    <p className="mt-2 text-[11px] text-gray-600 px-1">검색 후 종목을 클릭하면 선택됩니다.</p>
+                  )}
                 </div>
               )}
             </div>
