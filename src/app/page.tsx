@@ -56,8 +56,3 @@ export async function middleware(req: NextRequest) {
 
   return res;
 }
-
-export const config = {
-  // static 파일이나 api 경로는 미들웨어를 태우지 않도록 제외하는 것이 안전합니다.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
-};
