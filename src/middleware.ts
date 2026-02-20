@@ -35,8 +35,10 @@ export async function middleware(req: NextRequest) {
   // 2. 세션 확인
   const { data: { user } } = await supabase.auth.getUser();
 
-  // 3. /console 경로 보호
-  if (!user && req.nextUrl.pathname.startsWith('/console')) {
+  // 3. /console 경로 
+  const isConsolePath = req.nextUrl.pathname.startsWith('/console');
+  const isLoginPage = req.nextUrl.pathname === '/console/login';
+  if (!user && isConsolePath && !isLoginPage) {
     return NextResponse.redirect(new URL('/console/login', req.url));
   }
 
