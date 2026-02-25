@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { getServerTime } from '@/app/utils/TimeUtils';
 
 // 종목 타입 정의
 interface Stock {
@@ -45,9 +46,27 @@ export default function AiPickPage() {
   const [editingPick, setEditingPick] = useState<PickKey | null>(null);
 
   useEffect(() => {
-    const todayStr = new Date().toLocaleDateString('sv-SE');
-    setToday(todayStr);
-    fetchTodaySelection(todayStr);
+    const initPage = async () => {
+      setLoading(true);
+      try {
+        // 1. 유틸리티 함수로 서버 시간 가져오기
+        const serverDate = await getServerTime();
+        
+        // 2. 서버 시간 기준으로 YYYY-MM-DD 포맷 생성
+        // sv-SE 포맷이 깔끔하게 YYYY-MM-DD를 반환합니다.
+        const todayStr = serverDate.toLocaleDateString('sv-SE');
+        
+        setToday(todayStr);
+        // 3. 결정된 서버 날짜로 데이터 조회
+        await fetchTodaySelection(todayStr);
+      } catch (err) {
+        console.error('초기화 에러:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initPage();
   }, []);
 
   // 검색 로직
@@ -90,29 +109,20 @@ export default function AiPickPage() {
 
   const handleSelectStock = async (pickKey: PickKey, stock: Stock) => {
     try {
-      if (todaySelection) {
-        // 기존 선택 업데이트
-        const { error } = await supabase
-          .from('aiselections')
-          .update({
-            [`${pickKey}_stock_name`]: stock.name,
-            [`${pickKey}_stock_id`]: stock.code,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', todaySelection.id);
-        if (error) throw error;
-      } else {
-        // 신규 선택 생성
-        const { error } = await supabase
-          .from('aiselections')
-          .insert({
-            date: today,
-            [`${pickKey}_stock_name`]: stock.name,
-            [`${pickKey}_stock_id`]: stock.code,
-            is_announced: false,
-          });
-        if (error) throw error;
-      }
+      // upsert를 사용하면 id가 있든 없든 date를 기준으로 병합합니다.
+      const { error } = await supabase
+        .from('aiselections')
+        .upsert({
+          // id가 있으면 해당 id를 기준으로, 없으면 date를 기준으로 작동하게 하려면 
+          // 테이블에 UNIQUE(date) 제약 조건이 있어야 합니다.
+          ...(todaySelection?.id ? { id: todaySelection.id } : {}),
+          date: today,
+          [`${pickKey}_stock_name`]: stock.name,
+          [`${pickKey}_stock_id`]: stock.code,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'date' }); // date가 겹치면 업데이트 하라는 뜻
+
+      if (error) throw error;
 
       await fetchTodaySelection(today);
       setSearchInputs(prev => ({ ...prev, [pickKey]: '' }));
