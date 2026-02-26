@@ -3,14 +3,15 @@
 import { useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Siren, MailQuestion, Bot, Users, BarChart3} from 'lucide-react';
+import { Siren, MailQuestion, Bot, Users, BarChart3, SquarePlus} from 'lucide-react';
 
 const menus = [
   { label: '사용자 관리', href: '/console/users', icon: <Users size={20} /> },
-  { label: 'AI Pick', href: '/console/aipick', icon: <Bot size={20} /> },
-  { label: 'AI 주간픽', href: '/console/swing_pick/', icon: <BarChart3 size={20} /> },
+  { label: 'AI Pick', href: '/console/aipick', icon: <Bot size={20} /> },  
   { label: '문의 관리', href: '/console/inquiries', icon: <MailQuestion size={20} /> },
-  { label: '신고 관리', href: '/console/reports', icon: <Siren size={20} /> },  
+  { label: '신고 관리', href: '/console/reports', icon: <Siren size={20} /> },
+  { label: '팝업 관리', href: '/console/popup', icon: <SquarePlus size={20} /> },
+  { label: 'AI 주간픽(현재안씀)', href: '/console/swing_pick/', icon: <BarChart3 size={20} /> },
 ];
 
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
