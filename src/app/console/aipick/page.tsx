@@ -27,6 +27,83 @@ interface AiSelection {
 const PICK_KEYS = ['pick1', 'pick2', 'pick3'] as const;
 type PickKey = typeof PICK_KEYS[number];
 
+// ── OpeningPriceGrid를 컴포넌트 밖에 정의 (안에 있으면 매 렌더마다 재생성 → 포커스 날아감)
+const OpeningPriceGrid = ({
+  selection, existingPrices, prices, setPrices, savingMap, messages, onSave, onDelete,
+}: {
+  selection: AiSelection;
+  existingPrices: Record<PickKey, number | null>;
+  prices: Record<PickKey, string>;
+  setPrices: (fn: (prev: Record<PickKey, string>) => Record<PickKey, string>) => void;
+  savingMap: Record<PickKey, boolean>;
+  messages: Record<PickKey, { type: 'success' | 'error'; text: string } | null>;
+  onSave: (key: PickKey) => void;
+  onDelete?: (key: PickKey) => void;
+}) => (
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {PICK_KEYS.map((pickKey, index) => {
+      const stockId = selection[`${pickKey}_stock_id`];
+      const stockName = selection[`${pickKey}_stock_name`];
+      const existing = existingPrices[pickKey];
+      const msg = messages[pickKey];
+      const isSaving = savingMap[pickKey];
+      if (!stockId) {
+        return (
+          <div key={pickKey} className="bg-gray-800/30 border border-gray-700/50 border-dashed rounded-xl p-4 flex items-center justify-center">
+            <span className="text-gray-600 text-sm">Pick {index + 1} 미선택</span>
+          </div>
+        );
+      }
+      return (
+        <div key={pickKey} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
+          <div className="mb-3">
+            <div className="text-white font-bold text-sm">{stockName}</div>
+            <div className="text-gray-500 text-xs">{stockId}</div>
+          </div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-gray-500 text-xs">현재 등록된 시초가</span>
+            {existing !== null
+              ? <span className="text-emerald-400 text-xs font-bold">{existing.toLocaleString()}원 ✓</span>
+              : <span className="text-amber-400 text-xs font-bold">미등록</span>}
+            {existing !== null && onDelete && (
+              <button
+                onClick={() => onDelete(pickKey)}
+                className="ml-auto text-red-400 hover:text-red-300 text-[10px] font-bold bg-red-900/20 hover:bg-red-900/40 px-2 py-0.5 rounded transition-colors"
+              >
+                삭제
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={prices[pickKey]}
+              onChange={(e) => setPrices(prev => ({ ...prev, [pickKey]: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === 'Enter') onSave(pickKey); }}
+              placeholder={existing !== null ? `${existing.toLocaleString()}` : '시초가 입력'}
+              className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-gray-600"
+            />
+            <button
+              onClick={() => onSave(pickKey)}
+              disabled={isSaving || !prices[pickKey]}
+              className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap"
+            >
+              {isSaving ? '저장중' : '저장'}
+            </button>
+          </div>
+          {msg && (
+            <p className={`text-xs mt-2 font-medium ${msg.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
+              {msg.type === 'success' ? '✓ ' : '✗ '}{msg.text}
+            </p>
+          )}
+        </div>
+      );
+    })}
+  </div>
+);
+
 export default function AiPickPage() {
   const [today, setToday] = useState('');
   const [todaySelection, setTodaySelection] = useState<AiSelection | null>(null);
@@ -128,10 +205,13 @@ export default function AiPickPage() {
     }
   };
 
-  const handleAnnounce = async () => {
+  const handleAnnounce = async (pickKey?: PickKey) => {
     if (!todaySelection) return;
-    const { error } = await supabase.from('aiselections').update({ is_announced: true, updated_at: new Date().toISOString() }).eq('id', todaySelection.id);
-    if (!error) { alert('공개 완료!'); fetchTodaySelection(today); }
+    const { error } = await supabase
+      .from('aiselections')
+      .update({ is_announced: true, updated_at: new Date().toISOString() })
+      .eq('id', todaySelection.id);
+    if (!error) { fetchTodaySelection(today); }
     else alert('공개 실패: ' + error.message);
   };
 
@@ -202,76 +282,56 @@ export default function AiPickPage() {
     historyOpeningPrices, setHistoryOpeningPrices, setHistoryExistingPrices, setHistorySavingPrice, setHistoryPriceMessage
   );
 
-  const OpeningPriceGrid = ({
-    selection, existingPrices, prices, setPrices, savingMap, messages, onSave,
-  }: {
-    selection: AiSelection;
-    existingPrices: Record<PickKey, number | null>;
-    prices: Record<PickKey, string>;
-    setPrices: (fn: (prev: Record<PickKey, string>) => Record<PickKey, string>) => void;
-    savingMap: Record<PickKey, boolean>;
-    messages: Record<PickKey, { type: 'success' | 'error'; text: string } | null>;
-    onSave: (key: PickKey) => void;
-  }) => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-      {PICK_KEYS.map((pickKey, index) => {
-        const stockId = selection[`${pickKey}_stock_id`];
-        const stockName = selection[`${pickKey}_stock_name`];
-        const existing = existingPrices[pickKey];
-        const msg = messages[pickKey];
-        const isSaving = savingMap[pickKey];
-        if (!stockId) {
-          return (
-            <div key={pickKey} className="bg-gray-800/30 border border-gray-700/50 border-dashed rounded-xl p-4 flex items-center justify-center">
-              <span className="text-gray-600 text-sm">Pick {index + 1} 미선택</span>
-            </div>
-          );
-        }
-        return (
-          <div key={pickKey} className="bg-gray-800/50 border border-gray-700 rounded-xl p-4">
-            <div className="mb-3">
-              <div className="text-white font-bold text-sm">{stockName}</div>
-              <div className="text-gray-500 text-xs">{stockId}</div>
-            </div>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-gray-500 text-xs">현재 등록된 시초가</span>
-              {existing !== null
-                ? <span className="text-emerald-400 text-xs font-bold">{existing.toLocaleString()}원 ✓</span>
-                : <span className="text-amber-400 text-xs font-bold">미등록</span>}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                value={prices[pickKey]}
-                onChange={(e) => setPrices(prev => ({ ...prev, [pickKey]: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === 'Enter') onSave(pickKey); }}
-                placeholder={existing !== null ? `${existing.toLocaleString()}` : '시초가 입력'}
-                className="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white text-sm focus:border-emerald-500 focus:outline-none transition-all placeholder:text-gray-600"
-              />
-              <button
-                onClick={() => onSave(pickKey)}
-                disabled={isSaving || !prices[pickKey]}
-                className="bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-700 disabled:text-gray-500 text-black font-bold px-4 py-2 rounded-lg text-sm transition-colors whitespace-nowrap"
-              >
-                {isSaving ? '저장중' : '저장'}
-              </button>
-            </div>
-            {msg && (
-              <p className={`text-xs mt-2 font-medium ${msg.type === 'success' ? 'text-emerald-400' : 'text-red-400'}`}>
-                {msg.type === 'success' ? '✓ ' : '✗ '}{msg.text}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+  // ── 날짜별: 시초가 삭제 (stock_daily_prices)
+  const handleDeleteHistoryOpeningPrice = async (pickKey: PickKey) => {
+    if (!historySelection) return;
+    const stockId = historySelection[`${pickKey}_stock_id`];
+    if (!stockId) return;
+    if (!confirm(`${historyDate} · ${historySelection[`${pickKey}_stock_name`]} 시초가를 삭제하시겠습니까?`)) return;
+    const { error } = await supabase
+      .from('stock_daily_prices')
+      .delete()
+      .eq('stock_id', stockId)
+      .eq('date', historyDate);
+    if (!error) {
+      setHistoryExistingPrices(prev => ({ ...prev, [pickKey]: null }));
+      setHistoryPriceMessage(prev => ({ ...prev, [pickKey]: { type: 'success', text: '시초가 삭제 완료' } }));
+      setTimeout(() => setHistoryPriceMessage(prev => ({ ...prev, [pickKey]: null })), 3000);
+    } else {
+      alert('시초가 삭제 실패: ' + error.message);
+    }
+  };
+
+  // ── 날짜별: 픽 삭제 (aiselections)
+  const handleDeleteHistoryPick = async (pickKey: PickKey) => {
+    if (!historySelection) return;
+    const name = historySelection[`${pickKey}_stock_name`];
+    if (!name) return;
+    if (!confirm(`${historyDate} · Pick ${pickKey.slice(-1)} (${name})를 삭제하시겠습니까?`)) return;
+    const { error } = await supabase
+      .from('aiselections')
+      .update({
+        [`${pickKey}_stock_id`]: null,
+        [`${pickKey}_stock_name`]: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', historySelection.id);
+    if (!error) {
+      setHistorySelection(prev => prev ? {
+        ...prev,
+        [`${pickKey}_stock_id`]: null,
+        [`${pickKey}_stock_name`]: null,
+      } : null);
+      setHistoryExistingPrices(prev => ({ ...prev, [pickKey]: null }));
+    } else {
+      alert('픽 삭제 실패: ' + error.message);
+    }
+  };
 
   if (loading) {
     return <div className="p-8 flex items-center justify-center min-h-screen"><div className="text-gray-400">로딩 중...</div></div>;
   }
 
-  const allPicked = todaySelection?.pick1_stock_name && todaySelection?.pick2_stock_name && todaySelection?.pick3_stock_name;
   const isAnnounced = todaySelection?.is_announced;
   const hasPicks = todaySelection?.pick1_stock_id || todaySelection?.pick2_stock_id || todaySelection?.pick3_stock_id;
 
@@ -286,14 +346,14 @@ export default function AiPickPage() {
           <span className="text-emerald-400 font-medium">✅ 공개 완료</span>
           <span className="text-gray-500 text-sm">사용자에게 노출 중입니다.</span>
         </div>
-      ) : allPicked ? (
+      ) : hasPicks ? (
         <div className="bg-yellow-900/30 border border-yellow-800 rounded-xl px-6 py-4 mb-8 flex items-center justify-between">
-          <p className="text-yellow-400 font-medium">3종목 선택 완료. 공개 가능합니다.</p>
-          <button onClick={handleAnnounce} className="bg-emerald-500 hover:bg-emerald-600 text-black font-bold px-6 py-2 rounded-lg text-sm transition-colors">공개하기</button>
+          <p className="text-yellow-400 font-medium">종목을 선택한 후 각 카드에서 개별 공개하거나, 전체 공개할 수 있습니다.</p>
+          <button onClick={() => handleAnnounce()} className="bg-emerald-500 hover:bg-emerald-600 text-black font-bold px-6 py-2 rounded-lg text-sm transition-colors whitespace-nowrap">전체 공개</button>
         </div>
       ) : (
         <div className="bg-gray-900/50 border border-gray-800 rounded-xl px-6 py-4 mb-8">
-          <p className="text-gray-500 text-sm">3개 종목을 모두 선택해야 공개할 수 있습니다.</p>
+          <p className="text-gray-500 text-sm">종목을 1개 이상 선택하면 공개할 수 있습니다.</p>
         </div>
       )}
 
@@ -307,7 +367,16 @@ export default function AiPickPage() {
             <div key={pickKey} className="bg-gray-900 border border-gray-800 rounded-2xl p-6 relative transition-all hover:border-gray-700">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-white font-bold text-lg">Pick {index + 1}</h3>
-                {pickedName && !isEditing && <span className="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-1 rounded-full font-bold">선택됨</span>}
+                {pickedName && !isEditing && (
+                  isAnnounced
+                    ? <span className="bg-emerald-500/20 text-emerald-400 text-[10px] px-2 py-1 rounded-full font-bold">공개됨</span>
+                    : <button
+                        onClick={() => handleAnnounce(pickKey)}
+                        className="bg-emerald-500 hover:bg-emerald-600 text-black text-[10px] font-bold px-3 py-1 rounded-full transition-colors"
+                      >
+                        공개하기
+                      </button>
+                )}
               </div>
               <div className="mb-4 min-h-[60px] flex items-center">
                 {pickedName && !isEditing ? (
@@ -321,9 +390,7 @@ export default function AiPickPage() {
                   </div>
                 )}
               </div>
-              {isAnnounced ? (
-                <div className="text-center"><p className="text-gray-600 text-xs">공개된 픽은 수정할 수 없습니다.</p></div>
-              ) : isEditing || !pickedName ? (
+              {isEditing || !pickedName ? (
                 <div className="relative">
                   <input
                     type="text"
@@ -421,7 +488,7 @@ export default function AiPickPage() {
 
         {historySelection && (
           <>
-            {/* 픽 요약 */}
+            {/* 픽 요약 + 픽 삭제 */}
             <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4 mb-5">
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-white font-bold text-sm">{historySelection.date} 픽</span>
@@ -437,7 +504,16 @@ export default function AiPickPage() {
                     <div key={pickKey} className={`rounded-lg px-3 py-2 text-sm ${name ? 'bg-emerald-900/20 border border-emerald-800/40' : 'bg-gray-800/30 border border-gray-700/30'}`}>
                       <div className="text-gray-500 text-[10px] mb-1">Pick {index + 1}</div>
                       {name ? (
-                        <><div className="text-emerald-400 font-bold text-sm">{name}</div><div className="text-gray-500 text-xs">{code}</div></>
+                        <>
+                          <div className="text-emerald-400 font-bold text-sm">{name}</div>
+                          <div className="text-gray-500 text-xs mb-2">{code}</div>
+                          <button
+                            onClick={() => handleDeleteHistoryPick(pickKey)}
+                            className="w-full bg-red-900/30 hover:bg-red-900/50 text-red-400 text-[10px] font-bold py-1 rounded transition-colors"
+                          >
+                            픽 삭제
+                          </button>
+                        </>
                       ) : (
                         <div className="text-gray-600 text-xs">미선택</div>
                       )}
@@ -447,10 +523,10 @@ export default function AiPickPage() {
               </div>
             </div>
 
-            {/* 시초가 수정 */}
+            {/* 시초가 수정 + 삭제 */}
             <p className="text-gray-500 text-xs mb-4">
               <code className="text-gray-400 bg-gray-800 px-1 rounded">stock_daily_prices</code> 테이블의{' '}
-              <span className="text-white font-bold">{historyDate}</span> 시초가를 수정합니다.
+              <span className="text-white font-bold">{historyDate}</span> 시초가를 수정·삭제합니다.
             </p>
             <OpeningPriceGrid
               selection={historySelection}
@@ -460,6 +536,7 @@ export default function AiPickPage() {
               savingMap={historySavingPrice}
               messages={historyPriceMessage}
               onSave={handleSaveHistoryOpeningPrice}
+              onDelete={handleDeleteHistoryOpeningPrice}
             />
           </>
         )}
