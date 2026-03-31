@@ -35,7 +35,7 @@ export default function LoginPage() {
 
       if (!userData?.is_admin) {
         await supabase.auth.signOut();
-        setError('관리자 계정이 아닙니다.');
+        setError('관리자 계정이 아닙니다');
         return;
       }
 
