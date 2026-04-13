@@ -45,13 +45,15 @@ const getAccessToken = async (): Promise<string> => {
 
 export async function POST(req: NextRequest) {
   try {
-    const { title, body, target = 'all', screen = 'Dashboard' } = await req.json();
+    const { title, body, target = 'all', screen = 'Dashboard', user_ids } = await req.json();
 
     if (!title || !body) return NextResponse.json({ error: '제목과 내용을 입력해주세요' }, { status: 400 });
 
     let query = supabaseAdmin.from('push_tokens').select('token, user_id');
 
-    if (target === 'marketing') {
+    if (target === 'user_ids' && Array.isArray(user_ids) && user_ids.length > 0) {
+      query = query.in('user_id', user_ids);
+    } else if (target === 'marketing') {
       const { data: marketingUsers } = await supabaseAdmin.from('users').select('id').eq('marketing_agreed', true);
       const userIds = marketingUsers?.map(u => u.id) ?? [];
       if (userIds.length === 0) return NextResponse.json({ message: '마케팅 동의 유저가 없습니다', sent: 0 });

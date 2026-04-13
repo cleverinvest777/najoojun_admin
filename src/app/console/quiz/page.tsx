@@ -14,9 +14,19 @@ interface Quiz {
   answer: number;
   explanation: string | null;
   category: string;
+  date: string; // YYYY-MM-DD
   is_active: boolean;
   created_at: string;
 }
+
+const toLocalDateString = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const TODAY = toLocalDateString(new Date());
 
 export default function AdminQuizPage() {
   // ── 등록 폼
@@ -25,6 +35,7 @@ export default function AdminQuizPage() {
   const [answer, setAnswer] = useState<number | null>(null);
   const [explanation, setExplanation] = useState('');
   const [category, setCategory] = useState('주식');
+  const [quizDate, setQuizDate] = useState(TODAY);
   const [saving, setSaving] = useState(false);
 
   // ── 목록
@@ -32,19 +43,18 @@ export default function AdminQuizPage() {
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
 
-  // ── 오늘의 퀴즈 인덱스 계산
-  const todayIndex = (() => {
-    const activeQuizzes = quizzes.filter(q => q.is_active);
-    if (activeQuizzes.length === 0) return null;
-    const dayIndex = Math.floor(Date.now() / 86400000);
-    return dayIndex % activeQuizzes.length;
-  })();
+  // ── 오늘의 퀴즈
+  const todayQuiz = quizzes.find(q => q.is_active && q.date === TODAY) ?? null;
 
   const fetchQuizzes = async () => {
     setLoading(true);
     const res = await fetch(API);
     const data = await res.json();
-    setQuizzes(Array.isArray(data) ? data : []);
+    // 날짜 내림차순 정렬
+    const sorted = (Array.isArray(data) ? data : []).sort(
+      (a: Quiz, b: Quiz) => b.date.localeCompare(a.date)
+    );
+    setQuizzes(sorted);
     setLoading(false);
   };
 
@@ -53,6 +63,7 @@ export default function AdminQuizPage() {
   const resetForm = () => {
     setQuestion(''); setOptions(['', '', '', '']);
     setAnswer(null); setExplanation(''); setCategory('주식');
+    setQuizDate(TODAY);
     setEditId(null);
   };
 
@@ -66,16 +77,35 @@ export default function AdminQuizPage() {
     if (!question.trim()) { alert('문제를 입력해주세요'); return; }
     if (options.some(o => !o.trim())) { alert('보기 4개를 모두 입력해주세요'); return; }
     if (answer === null) { alert('정답을 선택해주세요'); return; }
+    if (!quizDate) { alert('날짜를 선택해주세요'); return; }
+
+    // 날짜 중복 체크 (수정 시 자기 자신 제외)
+    const duplicateDate = quizzes.find(
+      q => q.date === quizDate && q.id !== editId
+    );
+    if (duplicateDate) {
+      alert(`⚠️ ${quizDate}에 이미 퀴즈가 등록되어 있습니다.\n1일 1퀴즈만 등록할 수 있습니다.`);
+      return;
+    }
 
     setSaving(true);
     try {
-      const body = { question, options, answer, explanation, category };
+      const body = { question, options, answer, explanation, category, date: quizDate };
       const res = await fetch(editId ? `${API}?id=${editId}` : API, {
         method: editId ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error((await res.json()).error);
+      if (!res.ok) {
+        const errData = await res.json();
+        // 서버 측 중복 에러 처리
+        if (errData.error?.includes('unique') || errData.error?.includes('duplicate') || errData.error?.includes('date')) {
+          alert(`⚠️ ${quizDate}에 이미 퀴즈가 등록되어 있습니다.`);
+        } else {
+          throw new Error(errData.error);
+        }
+        return;
+      }
       resetForm();
       fetchQuizzes();
       alert(editId ? '수정되었습니다' : '퀴즈가 등록되었습니다');
@@ -93,6 +123,7 @@ export default function AdminQuizPage() {
     setAnswer(quiz.answer);
     setExplanation(quiz.explanation ?? '');
     setCategory(quiz.category);
+    setQuizDate(quiz.date);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -111,20 +142,60 @@ export default function AdminQuizPage() {
     fetchQuizzes();
   };
 
-  const activeQuizzes = quizzes.filter(q => q.is_active);
+  // 날짜 포맷: YYYY-MM-DD → M월 D일 (요일)
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr + 'T00:00:00');
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    return `${date.getMonth() + 1}월 ${date.getDate()}일 (${days[date.getDay()]})`;
+  };
+
+  // 날짜 상태 라벨
+  const getDateLabel = (dateStr: string) => {
+    if (dateStr === TODAY) return { text: '오늘', color: '#00FF9D' };
+    if (dateStr > TODAY) return { text: '예정', color: '#60A5FA' };
+    return { text: '지난', color: '#555' };
+  };
 
   return (
     <div style={s.page}>
       <div style={s.inner}>
         <div style={s.pageHeader}>
           <h1 style={s.pageTitle}>🧠 퀴즈 관리</h1>
-          <p style={s.pageDesc}>매일 퀴즈를 등록하고 관리합니다. 날짜 기준으로 자동 순환 출제됩니다.</p>
+          <p style={s.pageDesc}>날짜를 지정해 퀴즈를 등록합니다. 해당 날짜에 1개의 퀴즈만 출제됩니다.</p>
         </div>
 
         <div style={s.grid}>
           {/* ── 등록/수정 폼 ── */}
           <div style={s.card}>
             <h2 style={s.cardTitle}>{editId ? '✏️ 퀴즈 수정' : '➕ 퀴즈 등록'}</h2>
+
+            {/* 날짜 선택 */}
+            <label style={s.label}>출제 날짜</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="date"
+                style={s.dateInput}
+                value={quizDate}
+                onChange={e => setQuizDate(e.target.value)}
+              />
+              {quizDate && (() => {
+                const existing = quizzes.find(q => q.date === quizDate && q.id !== editId);
+                if (existing) {
+                  return (
+                    <p style={{ color: '#FF4D4D', fontSize: 11, marginTop: 4, fontWeight: 700 }}>
+                      ⚠️ 이 날짜에 이미 퀴즈가 등록되어 있습니다
+                    </p>
+                  );
+                }
+                return (
+                  <p style={{ color: '#8B949E', fontSize: 11, marginTop: 4 }}>
+                    {formatDate(quizDate)}
+                    {quizDate === TODAY && <span style={{ color: '#00FF9D', marginLeft: 6, fontWeight: 700 }}>· 오늘</span>}
+                    {quizDate > TODAY && <span style={{ color: '#60A5FA', marginLeft: 6, fontWeight: 700 }}>· 예정</span>}
+                  </p>
+                );
+              })()}
+            </div>
 
             <label style={s.label}>카테고리</label>
             <div style={s.chipRow}>
@@ -199,40 +270,37 @@ export default function AdminQuizPage() {
           <div style={s.card}>
             <h2 style={s.cardTitle}>📅 오늘의 퀴즈 미리보기</h2>
             <div style={{ ...s.infoBadge, marginBottom: 16 }}>
-              <span>활성 퀴즈 {activeQuizzes.length}개 · 오늘 인덱스 #{todayIndex !== null ? todayIndex + 1 : '-'}</span>
+              <span>{TODAY} · {todayQuiz ? '퀴즈 등록됨' : '등록된 퀴즈 없음'}</span>
             </div>
 
-            {activeQuizzes.length === 0 ? (
+            {!todayQuiz ? (
               <div style={s.emptyBox}>
-                <p style={{ color: '#555', margin: 0 }}>활성화된 퀴즈가 없습니다</p>
+                <p style={{ color: '#555', margin: 0 }}>오늘({TODAY})에 등록된 퀴즈가 없습니다</p>
+                <p style={{ color: '#3A3F4A', fontSize: 12, margin: '6px 0 0' }}>날짜를 오늘로 설정해 퀴즈를 등록해보세요</p>
               </div>
-            ) : (() => {
-              const todayQuiz = todayIndex !== null ? activeQuizzes[todayIndex] : null;
-              if (!todayQuiz) return null;
-              return (
-                <div>
-                  <div style={s.categoryBadge}>{todayQuiz.category}</div>
-                  <div style={s.previewQuestion}>{todayQuiz.question}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {todayQuiz.options.map((opt, idx) => (
-                      <div key={idx} style={{
-                        ...s.previewOption,
-                        ...(idx === todayQuiz.answer ? s.previewOptionAnswer : {}),
-                      }}>
-                        <span style={s.previewNum}>{idx + 1}</span>
-                        <span style={{ flex: 1, color: '#fff', fontSize: 13 }}>{opt}</span>
-                        {idx === todayQuiz.answer && <span style={{ color: '#00FF9D', fontSize: 11, fontWeight: 700 }}>✓ 정답</span>}
-                      </div>
-                    ))}
-                  </div>
-                  {todayQuiz.explanation && (
-                    <div style={s.explanationBox}>
-                      💡 {todayQuiz.explanation}
+            ) : (
+              <div>
+                <div style={s.categoryBadge}>{todayQuiz.category}</div>
+                <div style={s.previewQuestion}>{todayQuiz.question}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {todayQuiz.options.map((opt, idx) => (
+                    <div key={idx} style={{
+                      ...s.previewOption,
+                      ...(idx === todayQuiz.answer ? s.previewOptionAnswer : {}),
+                    }}>
+                      <span style={s.previewNum}>{idx + 1}</span>
+                      <span style={{ flex: 1, color: '#fff', fontSize: 13 }}>{opt}</span>
+                      {idx === todayQuiz.answer && <span style={{ color: '#00FF9D', fontSize: 11, fontWeight: 700 }}>✓ 정답</span>}
                     </div>
-                  )}
+                  ))}
                 </div>
-              );
-            })()}
+                {todayQuiz.explanation && (
+                  <div style={s.explanationBox}>
+                    💡 {todayQuiz.explanation}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -250,52 +318,67 @@ export default function AdminQuizPage() {
             <div style={s.emptyBox}>등록된 퀴즈가 없습니다</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {quizzes.map((quiz, listIdx) => (
-                <div key={quiz.id} style={s.quizItem}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1 }}>
-                    <div style={{ ...s.quizIndex, background: quiz.is_active ? '#00FF9D18' : '#1F2937', color: quiz.is_active ? '#00FF9D' : '#555', border: `1px solid ${quiz.is_active ? '#00FF9D40' : '#1F2937'}` }}>
-                      #{listIdx + 1}
+              {quizzes.map((quiz) => {
+                const dateLabel = getDateLabel(quiz.date);
+                return (
+                  <div key={quiz.id} style={{
+                    ...s.quizItem,
+                    borderColor: quiz.date === TODAY ? '#00FF9D30' : '#1F2937',
+                  }}>
+                    {/* 날짜 컬럼 */}
+                    <div style={s.dateColumn}>
+                      <span style={{ ...s.dateLabelBadge, color: dateLabel.color, borderColor: dateLabel.color + '40', background: dateLabel.color + '12' }}>
+                        {dateLabel.text}
+                      </span>
+                      <span style={s.dateText}>{quiz.date}</span>
+                      <span style={s.dayText}>{formatDate(quiz.date).split(' ')[2]}</span>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <span style={s.categoryBadge}>{quiz.category}</span>
-                        {!quiz.is_active && <span style={{ ...s.categoryBadge, background: '#1F2937', color: '#555', border: '1px solid #1F2937' }}>비활성</span>}
+
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: 1 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <span style={s.categoryBadge}>{quiz.category}</span>
+                          {!quiz.is_active && (
+                            <span style={{ ...s.categoryBadge, background: '#1F2937', color: '#555', border: '1px solid #1F2937' }}>비활성</span>
+                          )}
+                        </div>
+                        <p style={{ color: '#fff', fontWeight: 700, fontSize: 14, margin: '0 0 8px' }}>{quiz.question}</p>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {quiz.options.map((opt, idx) => (
+                            <span key={idx} style={{
+                              fontSize: 11, padding: '2px 8px', borderRadius: 6,
+                              background: idx === quiz.answer ? '#00FF9D18' : '#1F2937',
+                              color: idx === quiz.answer ? '#00FF9D' : '#8B949E',
+                              border: `1px solid ${idx === quiz.answer ? '#00FF9D40' : 'transparent'}`,
+                              fontWeight: idx === quiz.answer ? 700 : 400,
+                            }}>
+                              {idx + 1}. {opt}{idx === quiz.answer ? ' ✓' : ''}
+                            </span>
+                          ))}
+                        </div>
+                        {quiz.explanation && (
+                          <p style={{ color: '#8B949E', fontSize: 11, margin: '6px 0 0' }}>💡 {quiz.explanation}</p>
+                        )}
                       </div>
-                      <p style={{ color: '#fff', fontWeight: 700, fontSize: 14, margin: '0 0 8px' }}>{quiz.question}</p>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {quiz.options.map((opt, idx) => (
-                          <span key={idx} style={{
-                            fontSize: 11, padding: '2px 8px', borderRadius: 6,
-                            background: idx === quiz.answer ? '#00FF9D18' : '#1F2937',
-                            color: idx === quiz.answer ? '#00FF9D' : '#8B949E',
-                            border: `1px solid ${idx === quiz.answer ? '#00FF9D40' : 'transparent'}`,
-                            fontWeight: idx === quiz.answer ? 700 : 400,
-                          }}>
-                            {idx + 1}. {opt}{idx === quiz.answer ? ' ✓' : ''}
-                          </span>
-                        ))}
-                      </div>
-                      {quiz.explanation && (
-                        <p style={{ color: '#8B949E', fontSize: 11, margin: '6px 0 0' }}>💡 {quiz.explanation}</p>
-                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
+                      <button
+                        style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #1F2937', background: '#05070A', color: '#E3C16F', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                        onClick={() => handleEdit(quiz)}
+                      >수정</button>
+                      <button
+                        style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${quiz.is_active ? '#FF4D4D' : '#00FF9D'}`, background: '#05070A', color: quiz.is_active ? '#FF4D4D' : '#00FF9D', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                        onClick={() => handleToggle(quiz.id, quiz.is_active)}
+                      >{quiz.is_active ? '비활성화' : '활성화'}</button>
+                      <button
+                        style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #FF4D4D', background: 'transparent', color: '#FF4D4D', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
+                        onClick={() => handleDelete(quiz.id)}
+                      >삭제</button>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'flex-start' }}>
-                    <button
-                      style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #1F2937', background: '#05070A', color: '#E3C16F', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                      onClick={() => handleEdit(quiz)}
-                    >수정</button>
-                    <button
-                      style={{ padding: '5px 10px', borderRadius: 6, border: `1px solid ${quiz.is_active ? '#FF4D4D' : '#00FF9D'}`, background: '#05070A', color: quiz.is_active ? '#FF4D4D' : '#00FF9D', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                      onClick={() => handleToggle(quiz.id, quiz.is_active)}
-                    >{quiz.is_active ? '비활성화' : '활성화'}</button>
-                    <button
-                      style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #FF4D4D', background: 'transparent', color: '#FF4D4D', cursor: 'pointer', fontSize: 11, fontWeight: 700 }}
-                      onClick={() => handleDelete(quiz.id)}
-                    >삭제</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -315,6 +398,7 @@ const s: Record<string, React.CSSProperties> = {
   cardTitle: { color: '#fff', fontSize: 16, fontWeight: 800, marginBottom: 12, marginTop: 0 },
   label: { color: '#8B949E', fontSize: 11, fontWeight: 700, marginBottom: 4, marginTop: 12 },
   input: { backgroundColor: '#05070A', border: '1px solid #1F2937', borderRadius: 8, padding: '10px 12px', color: '#fff', fontSize: 13, width: '100%', outline: 'none', boxSizing: 'border-box' },
+  dateInput: { backgroundColor: '#05070A', border: '1px solid #1F2937', borderRadius: 8, padding: '10px 12px', color: '#fff', fontSize: 13, width: '100%', outline: 'none', boxSizing: 'border-box', colorScheme: 'dark' },
   chipRow: { display: 'flex', gap: 8, flexWrap: 'wrap' },
   chip: { padding: '6px 14px', borderRadius: 8, border: '1px solid #1F2937', background: '#05070A', color: '#8B949E', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
   chipActive: { padding: '6px 14px', borderRadius: 8, border: '1px solid #00FF9D', background: '#00FF9D18', color: '#00FF9D', cursor: 'pointer', fontSize: 12, fontWeight: 700 },
@@ -323,11 +407,15 @@ const s: Record<string, React.CSSProperties> = {
   emptyBox: { backgroundColor: '#0F1218', border: '1px solid #1F2937', borderRadius: 12, padding: '40px 0', textAlign: 'center', color: '#8B949E' },
   infoBadge: { backgroundColor: '#1F2937', borderRadius: 8, padding: '6px 12px', color: '#8B949E', fontSize: 12 },
   categoryBadge: { display: 'inline-block', background: '#00FF9D15', border: '1px solid #00FF9D30', borderRadius: 6, padding: '2px 8px', color: '#00FF9D', fontSize: 11, fontWeight: 700 },
-  previewQuestion: { color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1.6, backgroundColor: '#05070A', borderRadius: 10, padding: 14, marginBottom: 12, border: '1px solid #1F2937' },
+  previewQuestion: { color: '#fff', fontSize: 14, fontWeight: 700, lineHeight: 1.6, backgroundColor: '#05070A', borderRadius: 10, padding: 14, marginBottom: 12, marginTop: 8, border: '1px solid #1F2937' },
   previewOption: { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid #1F2937', background: '#05070A' },
   previewOptionAnswer: { border: '1px solid #00FF9D40', background: '#00FF9D10' },
   previewNum: { width: 22, height: 22, borderRadius: 11, background: '#1F2937', color: '#8B949E', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   explanationBox: { marginTop: 12, padding: '10px 14px', borderRadius: 8, background: '#1F2937', color: '#8B949E', fontSize: 12, lineHeight: 1.6 },
-  quizItem: { backgroundColor: '#0F1218', border: '1px solid #1F2937', borderRadius: 12, padding: '16px', display: 'flex', gap: 12, alignItems: 'flex-start' },
-  quizIndex: { padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 800, flexShrink: 0 },
+  quizItem: { backgroundColor: '#0F1218', border: '1px solid #1F2937', borderRadius: 12, padding: '16px', display: 'flex', gap: 16, alignItems: 'flex-start' },
+  // 날짜 컬럼
+  dateColumn: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0, width: 56, paddingTop: 2 },
+  dateLabelBadge: { fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 5, border: '1px solid', letterSpacing: 0.5 },
+  dateText: { color: '#8B949E', fontSize: 11, fontWeight: 600, fontVariantNumeric: 'tabular-nums' },
+  dayText: { color: '#3A3F4A', fontSize: 11 },
 };

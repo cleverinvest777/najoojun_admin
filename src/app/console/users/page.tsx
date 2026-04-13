@@ -7,14 +7,18 @@ import UserDetailModal from '@/components/UserDetailModal';
 interface User {
   id: string;
   email: string;
+  username: string;
   name: string;
   point: number;
   is_admin: boolean;
+  is_suspended: boolean;
+  suspended_reason: string | null;
   phone_number: string | null;
   birth_date: string | null;
   gender: string | null;
   marketing_agreed: boolean;
   created_at: string;
+  suspicious_flags?: string[];
 }
 
 const PAGE_SIZE = 50;
@@ -28,6 +32,23 @@ export default function UsersPage() {
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
+
+  const suspiciousLabelMap: Record<string, string> = {
+    daily_300: '24시간 300P+',
+    hourly_10: '1시간 10회+',
+    single_200: '단건 200P+',
+  };
+
+  const getRowClassName = (user: User) => {
+    const isSuspicious = (user.suspicious_flags?.length ?? 0) > 0;
+    if (user.is_suspended) {
+      return 'border-b border-red-900/50 bg-red-950/20 hover:bg-red-950/30 cursor-pointer transition-colors';
+    }
+    if (isSuspicious) {
+      return 'border-b border-amber-900/50 bg-amber-950/10 hover:bg-amber-950/20 cursor-pointer transition-colors';
+    }
+    return 'border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors';
+  };
 
   const fetchUsers = async (pageNum: number = 0, reset: boolean = false) => {
     if (pageNum === 0) setLoading(true);
@@ -43,16 +64,28 @@ export default function UsersPage() {
       .range(from, to);
 
     if (search.trim()) {
-      query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%`);
+      query = query.or(`name.ilike.%${search}%,username.ilike.%${search}%,phone_number.ilike.%${search}%`);
     }
 
-    const { data, error, count } = await query;
+    const [{ data, error, count }, { data: suspiciousRows }] = await Promise.all([
+      query,
+      supabase.rpc('get_suspicious_users'),
+    ]);
 
     if (!error) {
+      const suspiciousMap = new Map<string, string[]>(
+        ((suspiciousRows as any[]) || []).map((row) => [row.user_id, row.flags || []]),
+      );
+
+      const mergedUsers = (data || []).map((user) => ({
+        ...user,
+        suspicious_flags: suspiciousMap.get(user.id) ?? [],
+      }));
+
       if (reset || pageNum === 0) {
-        setUsers(data || []);
+        setUsers(mergedUsers);
       } else {
-        setUsers((prev) => [...prev, ...(data || [])]);
+        setUsers((prev) => [...prev, ...mergedUsers]);
       }
       setTotalCount(count || 0);
       setHasMore((data || []).length === PAGE_SIZE);
@@ -98,7 +131,7 @@ export default function UsersPage() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="이름 또는 이메일로 검색..."
+          placeholder="이름 또는 아이디, 전화번호로 검색..."
           className="w-full max-w-sm bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500 text-sm"
         />
       </div>
@@ -108,22 +141,24 @@ export default function UsersPage() {
           <thead>
             <tr className="border-b border-gray-800">
               <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">이름</th>
-              <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">이메일</th>
+              <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">아이디</th>
+              <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">전화번호</th>
               <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">포인트</th>
               <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">가입일</th>
+              <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">상태</th>
               <th className="text-left text-gray-400 text-sm font-medium px-6 py-4">권한</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                   로딩 중...
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                   검색 결과가 없습니다
                 </td>
               </tr>
@@ -132,13 +167,33 @@ export default function UsersPage() {
                 <tr
                   key={user.id}
                   onClick={() => setSelectedUser(user)}
-                  className="border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer transition-colors"
+                  className={getRowClassName(user)}
                 >
                   <td className="px-6 py-4 text-white font-medium">{user.name || '-'}</td>
-                  <td className="px-6 py-4 text-gray-400 text-sm">{user.email}</td>
+                  <td className="px-6 py-4 text-gray-400 text-sm">{user.username}</td>
+                  <td className="px-6 py-4 text-gray-400 text-sm">{user.phone_number}</td>
                   <td className="px-6 py-4 text-emerald-400 font-bold">{user.point}P</td>
                   <td className="px-6 py-4 text-gray-400 text-sm">
                     {new Date(user.created_at).toLocaleDateString('ko-KR')}
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      {user.is_suspended && (
+                        <span className="bg-red-500/15 text-red-400 text-xs px-2 py-1 rounded-full">
+                          정지
+                        </span>
+                      )}
+                      {(user.suspicious_flags ?? []).map((flag) => (
+                        <span key={flag} className="bg-amber-500/15 text-amber-300 text-xs px-2 py-1 rounded-full">
+                          {suspiciousLabelMap[flag] ?? flag}
+                        </span>
+                      ))}
+                      {!user.is_suspended && (user.suspicious_flags?.length ?? 0) === 0 && (
+                        <span className="bg-gray-800 text-gray-500 text-xs px-2 py-1 rounded-full">
+                          정상
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     {user.is_admin ? (
