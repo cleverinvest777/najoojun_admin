@@ -129,6 +129,9 @@ export default function AiPickPage() {
   const [historySavingPrice, setHistorySavingPrice] = useState<Record<PickKey, boolean>>({ pick1: false, pick2: false, pick3: false });
   const [historyPriceMessage, setHistoryPriceMessage] = useState<Record<PickKey, { type: 'success' | 'error'; text: string } | null>>({ pick1: null, pick2: null, pick3: null });
 
+  
+  console.log(process.env.NEXT_PUBLIC_WORKER_URL)
+  console.log(process.env.NEXT_PUBLIC_WORKER_SECRET)
   useEffect(() => {
     const initPage = async () => {
       setLoading(true);
@@ -195,7 +198,34 @@ export default function AiPickPage() {
         [`${pickKey}_stock_id`]: stock.code,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'date' });
+
       if (error) throw error;
+
+      // ✅ 장중이면 워커에 종목 추가 구독 요청
+      const serverTime = await getServerTime();
+      const totalMin = serverTime.getHours() * 60 + serverTime.getMinutes();
+      const isMarketHours = totalMin >= 9 * 60 + 6 && totalMin < 15 * 60 + 30;
+
+      alert(`장중여부: ${isMarketHours}, 시간: ${serverTime.getHours()}:${serverTime.getMinutes()}`);
+
+
+      if (isMarketHours) {
+        try {
+          const res = await fetch(`/api/add-stock`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${process.env.NEXT_PUBLIC_WORKER_SECRET}`,
+            },
+            body: JSON.stringify({ stockId: stock.code }),
+          });
+          const result = await res.json();
+          console.log('✅ 워커 종목 구독 요청 결과:', result);
+        } catch (e) {
+          console.warn('⚠️ 워커 구독 요청 실패 (무시):', e);
+        }
+      }
+
       await fetchTodaySelection(today);
       setSearchInputs(prev => ({ ...prev, [pickKey]: '' }));
       setSearchResults(prev => ({ ...prev, [pickKey]: [] }));
