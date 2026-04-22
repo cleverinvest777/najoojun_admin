@@ -56,6 +56,50 @@ export default function AdminPopupsPage() {
 
   useEffect(() => { fetchPopups(); }, []);
 
+  const resizeImage = (file: File, targetWidth: number, targetHeight: number): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject('Canvas 실패');
+        
+        // 원본 비율 유지하면서 cover 방식으로 크롭
+        const srcRatio = img.width / img.height;
+        const dstRatio = targetWidth / targetHeight;
+        
+        let sx = 0, sy = 0, sw = img.width, sh = img.height;
+        
+        if (srcRatio > dstRatio) {
+          // 원본이 더 넓음 → 좌우 크롭
+          sw = img.height * dstRatio;
+          sx = (img.width - sw) / 2;
+        } else {
+          // 원본이 더 높음 → 상하 크롭
+          sh = img.width / dstRatio;
+          sy = (img.height - sh) / 2;
+        }
+        
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetWidth, targetHeight);
+        URL.revokeObjectURL(url);
+        
+        canvas.toBlob(
+          blob => blob ? resolve(blob) : reject('Blob 변환 실패'),
+          'image/jpeg',
+          0.85  // 품질 85%
+        );
+      };
+      
+      img.onerror = () => reject('이미지 로드 실패');
+      img.src = url;
+    });
+  };
+
   // ── 이미지 업로드 ──────────────────────────────────────────
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -66,18 +110,21 @@ export default function AdminPopupsPage() {
     setUploading(true);
 
     try {
+      const resizedBlob = await resizeImage(file, 1080, 607);
+      const resizedFile = new File([resizedBlob], file.name, { type: 'image/jpeg' });
       const fileName = `popup_${Date.now()}_${file.name}`;
       const { error } = await supabase.storage
-        .from('popup-images')
+        .from('popup-image')
         .upload(fileName, file, { upsert: true });
 
       if (error) throw error;
 
       const { data: urlData } = supabase.storage
-        .from('popup-images')
+        .from('popup-image')
         .getPublicUrl(fileName);
 
       setForm(p => ({ ...p, image_url: urlData.publicUrl }));
+      setPreviewUrl(URL.createObjectURL(resizedBlob));
     } catch (e) {
       alert('이미지 업로드 실패: ' + e);
       setPreviewUrl('');

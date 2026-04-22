@@ -206,7 +206,7 @@ export default function AiPickPage() {
       const totalMin = serverTime.getHours() * 60 + serverTime.getMinutes();
       const isMarketHours = totalMin >= 9 * 60 + 6 && totalMin < 15 * 60 + 30;
 
-      alert(`장중여부: ${isMarketHours}, 시간: ${serverTime.getHours()}:${serverTime.getMinutes()}`);
+      // alert(`장중여부: ${isMarketHours}, 시간: ${serverTime.getHours()}:${serverTime.getMinutes()}`);
 
 
       if (isMarketHours) {
