@@ -7,9 +7,9 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const FCM_URL = 'https://fcm.googleapis.com/v1/projects/stock-battle-34f1e/messages:send';
+const FCM_URL = 'https://fcm.googleapis.com/v1/projects/cleverinvest-5069d/messages:send';
 
-const sendToToken = async (token: string, title: string, body: string, screen: string, accessToken: string): Promise<boolean> => {
+const sendToToken = async (token: string, title: string, body: string, screen: string, accessToken: string): Promise<{ success: boolean; error?: string }> => {
   try {
     const res = await fetch(FCM_URL, {
       method: 'POST',
@@ -24,8 +24,18 @@ const sendToToken = async (token: string, title: string, body: string, screen: s
         },
       }),
     });
-    return res.ok;
-  } catch { return false; }
+    
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      const errMsg = errBody.error?.message || `HTTP ${res.status}`;
+      console.error(`[FCM 전송 실패] 토큰: ${token.substring(0, 10)}... 에러:`, errMsg, errBody);
+      return { success: false, error: errMsg };
+    }
+    return { success: true };
+  } catch (err: any) {
+    console.error(`[FCM 전송 네트워크 에러] 토큰: ${token.substring(0, 10)}... 에러:`, err);
+    return { success: false, error: err.message || 'Network Error' };
+  }
 };
 
 const getAccessToken = async (): Promise<string> => {
@@ -47,7 +57,7 @@ export async function POST(req: NextRequest) {
   try {
     const { title, body, target = 'all', screen = 'Dashboard', user_ids } = await req.json();
 
-    if (!title || !body) return NextResponse.json({ error: '제목과 내용을 입력해주세요' }, { status: 400 });
+    if (!title || !body) return NextResponse.json({ success: false, error: '제목과 내용을 입력해주세요' }, { status: 400 });
 
     let query = supabaseAdmin.from('push_tokens').select('token, user_id');
 
@@ -56,21 +66,29 @@ export async function POST(req: NextRequest) {
     } else if (target === 'marketing') {
       const { data: marketingUsers } = await supabaseAdmin.from('users').select('id').eq('marketing_agreed', true);
       const userIds = marketingUsers?.map(u => u.id) ?? [];
-      if (userIds.length === 0) return NextResponse.json({ message: '마케팅 동의 유저가 없습니다', sent: 0 });
+      if (userIds.length === 0) return NextResponse.json({ success: false, error: '마케팅 동의 유저가 없습니다', sent: 0 });
       query = query.in('user_id', userIds);
     }
 
     const { data: tokens, error } = await query;
     if (error) throw error;
-    if (!tokens || tokens.length === 0) return NextResponse.json({ message: '발송할 토큰이 없습니다', sent: 0 });
+    if (!tokens || tokens.length === 0) return NextResponse.json({ success: false, error: '발송할 토큰이 없습니다', sent: 0 });
 
     const accessToken = await getAccessToken();
     const results = await Promise.allSettled(
       tokens.map(t => sendToToken(t.token, title, body, screen, accessToken))
     );
 
-    const sentCount = results.filter(r => r.status === 'fulfilled' && r.value).length;
+    const sentCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
     const failedCount = results.length - sentCount;
+
+    let firstError: string | undefined = undefined;
+    if (sentCount === 0 && results.length > 0) {
+      const firstFailed = results.find(r => r.status === 'fulfilled' && !r.value.success);
+      if (firstFailed && 'value' in firstFailed) {
+        firstError = firstFailed.value.error;
+      }
+    }
 
     // ✅ notifications 테이블에 유저별 알림 저장
     if (tokens.length > 0) {
@@ -86,11 +104,18 @@ export async function POST(req: NextRequest) {
       status: sentCount > 0 ? 'sent' : 'failed',
     });
 
-    return NextResponse.json({ success: true, total: tokens.length, sent: sentCount, failed: failedCount });
+    const isSuccess = sentCount > 0;
+    return NextResponse.json({
+      success: isSuccess,
+      total: tokens.length,
+      sent: sentCount,
+      failed: failedCount,
+      error: !isSuccess ? (firstError || 'FCM 발송 실패') : undefined
+    });
 
   } catch (e: any) {
     console.error('푸시 발송 실패:', e);
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }
 }
 

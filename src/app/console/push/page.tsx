@@ -281,7 +281,7 @@ export default function AdminPushPage() {
             </button>
             {sendResult && (
               <div style={{ ...s.resultBox, borderColor: sendResult.success ? '#00FF9D' : '#FF4D4D' }}>
-                {sendResult.success ? `✅ 발송 완료 — 성공 ${sendResult.sent}건 / 실패 ${sendResult.failed}건` : `❌ 발송 실패: ${sendResult.error}`}
+                {sendResult.success ? `✅ 발송 완료 — 성공 ${sendResult.sent}건 / 실패 ${sendResult.failed}건` : `❌ 발송 실패: ${sendResult.error || sendResult.message || '알 수 없는 오류'}`}
               </div>
             )}
           </div>
